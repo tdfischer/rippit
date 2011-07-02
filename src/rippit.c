@@ -191,7 +191,7 @@ static gboolean tag_cb(GstBus *bus, GstMessage *msg, gpointer data)
 
             g_print("Could not get musicbrainz information for this disc.\n");
             g_print("Please visit the following url to contribute disc information:\n");
-            g_print("\thttp://musicbrainz.org/bare/cdlookup.html?id=%s&tracks=%d&toc=%s\n", id_str, (int)trackCount, encodedToc->str);
+            g_print("http://musicbrainz.org/bare/cdlookup.html?id=%s&tracks=%d&toc=%s\n", id_str, (int)trackCount, encodedToc->str);
 
             g_string_free(encodedToc, TRUE);
             g_main_loop_quit(loop);
