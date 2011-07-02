@@ -164,7 +164,7 @@ static gboolean tag_cb(GstBus *bus, GstMessage *msg, gpointer data)
         gotData = TRUE;
         GST_DEBUG("Got MusicBrainz id %s", id_str);
         MbWebService svc = mb_webservice_new();
-        MbQuery q = mb_query_new(svc, "ripit-0.1");
+        MbQuery q = mb_query_new(svc, "rippit-0.1");
         MbReleaseFilter filter = mb_release_filter_disc_id(mb_release_filter_new(), id_str);
         MbResultList results = mb_query_get_releases(q, filter);
         releases = mb_result_list_get_size(results);
