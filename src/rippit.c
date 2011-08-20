@@ -40,6 +40,9 @@
     STRINGIZE(RIPPIT_VERSION_MINOR) "." \
     STRINGIZE(RIPPIT_VERSION_MICRO)
 
+GST_DEBUG_CATEGORY_STATIC(rippit);
+#define GST_CAT_DEFAULT rippit
+
 static GMainLoop *loop;
 static GstElement *pipeline;
 static GstElement *filesink;
@@ -49,17 +52,36 @@ static MbRelease discData;
 static gboolean gotData = FALSE;
 static int curTrack = 0;
 static guint64 trackCount = 0;
+static gchar *discID;
+static int singleTrack = -1;
 
 static gboolean printVersion = FALSE;
+static gboolean forceRip = FALSE;
+
+static gboolean printProgress(gpointer data);
 
 static GOptionEntry entries[] =
 {
-    { "version", 'v', 0, G_OPTION_ARG_NONE, &printVersion, "Display version", NULL }
+    { "version", 'v', 0, G_OPTION_ARG_NONE, &printVersion, "Display version", NULL },
+    { "force-rip", 'f', 0, G_OPTION_ARG_NONE, &forceRip, "Rip the disc, even if there might be big bad errors", NULL},
+    { "track", 't', 0, G_OPTION_ARG_INT, &singleTrack, "Only rip the given track", NULL}
 };
+
+static void uncorrectedError_cb(GstElement *element, gint sector, gpointer data)
+{
+    GST_DEBUG("Disk error in sector %d", sector);
+    g_printf("      Disk is scratched at sector %d. Data was lost. I'm sorry :(", sector);
+}
+
+static void transportError_cb(GstElement *element, gint sector, gpointer data)
+{
+    GST_DEBUG("Possible disk error in sector %d", sector);
+    g_printf("      Disk is scratched at sector %d. Recovering...", sector);
+}
 
 static guint64 getPos()
 {
-    guint64 pos;
+    guint64 pos = 0;
     GstFormat format = GST_FORMAT_TIME;
     gst_element_query_position (GST_ELEMENT(pipeline), &format, &pos);
     return pos;
@@ -67,16 +89,41 @@ static guint64 getPos()
 
 static guint64 getDuration()
 {
-    guint64 duration;
+    guint64 duration = 0;
     GstFormat format = GST_FORMAT_TIME;
     gst_element_query_duration(GST_ELEMENT(pipeline), &format, &duration);
     return duration;
 }
 
-static int printProgress(gpointer data)
+static gboolean checkForStall()
 {
-    int pos = ((double)getPos()/(double)getDuration())*100;
+    static int lastTrack = -1;
+    static int lastPos = 0;
+
+    if (lastTrack != curTrack) {
+        lastTrack = curTrack;
+        lastPos = 0;
+        return TRUE;
+    }
+
+    if (lastPos != getPos()) {
+        lastPos = getPos();
+        return TRUE;
+    }
+    // Print some spaces that printProgress() will fill in later
+    g_printf("      Still waiting to decode track. Is the disc scratched?\r");
+    printProgress(NULL);
+    return FALSE;
+}
+
+static gboolean printProgress(gpointer data)
+{
+    int pos = 0;
+    if (getDuration() > 0)
+        pos = ((double)getPos()/(double)getDuration())*100;
     g_printf("%3.d%%\r", pos);
+    sync();
+    return TRUE;
 }
 
 static void startNextTrack()
@@ -88,8 +135,14 @@ static void startNextTrack()
     MbTrack track;
     MbArtist artist;
     GstTagList *tags;
+
+    // Reset the stall detector
+    checkForStall();
+
+    g_timeout_add_seconds(5, checkForStall, NULL);
+
     curTrack++;
-    if (curTrack > trackCount) {
+    if (curTrack > trackCount || (singleTrack > -1 && curTrack > singleTrack)) {
         g_main_loop_quit(loop);
         return;
     }
@@ -101,39 +154,51 @@ static void startNextTrack()
 
     GST_DEBUG("Starting with track %d", curTrack);
 
-    track = mb_release_get_track(discData, curTrack-1);
-    artist = mb_track_get_artist(track);
-    if (!artist) {
-        artist = mb_release_get_artist(discData);
+    if (!forceRip) {
+        track = mb_release_get_track(discData, curTrack-1);
+        artist = mb_track_get_artist(track);
+        if (!artist) {
+            artist = mb_release_get_artist(discData);
+        }
+        mb_artist_get_name(artist, artistName, 256);
+        mb_track_get_title(track, trackName, 256);
+        mb_release_get_title(discData, albumName, 256);
+        outname = g_strdup_printf("%s - %s.flac", artistName, trackName);
+
+        gst_element_set_state(pipeline, GST_STATE_NULL);
+
+        tags = gst_tag_list_new_full(
+            GST_TAG_TITLE, trackName,
+            GST_TAG_ARTIST, artistName,
+            GST_TAG_ALBUM, albumName,
+            GST_TAG_APPLICATION_NAME, "rippit",
+            GST_TAG_TRACK_NUMBER, curTrack,
+            NULL
+        );
+
+        gst_element_set_state(pipeline, GST_STATE_READY);
+        gst_tag_setter_merge_tags(tag_setter, tags, GST_TAG_MERGE_REPLACE_ALL);
+
+        gst_tag_list_free(tags);
+    } else {
+        outname = g_strdup_printf("%s - %d.flac", discID, curTrack);
     }
-    mb_artist_get_name(artist, artistName, 256);
-    mb_track_get_title(track, trackName, 256);
-    mb_release_get_title(discData, albumName, 256);
-    outname = g_strdup_printf("%s - %s.flac", artistName, trackName);
 
-    gst_element_set_state(pipeline, GST_STATE_NULL);
-
+    gst_element_set_state(filesink, GST_STATE_NULL);
     g_object_set(G_OBJECT(filesink), "location", outname, NULL);
+    gst_element_set_state(filesink, GST_STATE_READY);
     g_print("Writing to %s:\n", outname);
-
-    tags = gst_tag_list_new_full(
-        GST_TAG_TITLE, trackName,
-        GST_TAG_ARTIST, artistName,
-        GST_TAG_ALBUM, albumName,
-        GST_TAG_APPLICATION_NAME, "rippit",
-        GST_TAG_TRACK_NUMBER, curTrack,
-        NULL
-    );
-
-    gst_element_set_state(pipeline, GST_STATE_READY);
-    gst_tag_setter_merge_tags(tag_setter, tags, GST_TAG_MERGE_REPLACE_ALL);
-
-    gst_tag_list_free(tags);
 
     g_free(outname);
     g_object_set(G_OBJECT(cdsrc), "track", curTrack, NULL);
     gst_element_set_state(pipeline, GST_STATE_PLAYING);
-    g_idle_add(printProgress, NULL);
+    g_timeout_add_full(G_PRIORITY_LOW, 100, printProgress, NULL, NULL);
+}
+
+static gboolean element_cb(GstBus *bus, GstMessage *msg, gpointer data)
+{
+    const GstStructure *str = gst_message_get_structure(msg);
+    GST_DEBUG("Got element message %s", gst_structure_get_name(str));
 }
 
 static gboolean eos_cb(GstBus *bus, GstMessage *msg, gpointer data)
@@ -157,20 +222,19 @@ static gboolean state_cb(GstBus *bus, GstMessage *msg, gpointer data)
 static gboolean tag_cb(GstBus *bus, GstMessage *msg, gpointer data)
 {
     GstTagList *tags = NULL;
-    gchar *id_str;
     gst_message_parse_tag(msg, &tags);
-    if (!gotData && gst_tag_list_get_string(tags, GST_TAG_CDDA_MUSICBRAINZ_DISCID, &id_str)) {
+    if (!gotData && gst_tag_list_get_string(tags, GST_TAG_CDDA_MUSICBRAINZ_DISCID, &discID)) {
         int releases;
         gotData = TRUE;
-        GST_DEBUG("Got MusicBrainz id %s", id_str);
+        GST_DEBUG("Got MusicBrainz id %s", discID);
         MbWebService svc = mb_webservice_new();
-        MbQuery q = mb_query_new(svc, "rippit-0.1");
-        MbReleaseFilter filter = mb_release_filter_disc_id(mb_release_filter_new(), id_str);
+        MbQuery q = mb_query_new(svc, "rippit-" RIPPIT_VERSION_STRING);
+        MbReleaseFilter filter = mb_release_filter_disc_id(mb_release_filter_new(), discID);
         MbResultList results = mb_query_get_releases(q, filter);
         releases = mb_result_list_get_size(results);
         if (releases > 0) {
             discData = mb_result_list_get_release(results, 0);
-        } else {
+        } else if(!forceRip) {
             gchar *toc;
             gchar **tocParts;
             GString *encodedToc;
@@ -191,7 +255,8 @@ static gboolean tag_cb(GstBus *bus, GstMessage *msg, gpointer data)
 
             g_print("Could not get musicbrainz information for this disc.\n");
             g_print("Please visit the following url to contribute disc information:\n");
-            g_print("http://musicbrainz.org/bare/cdlookup.html?id=%s&tracks=%d&toc=%s\n", id_str, (int)trackCount, encodedToc->str);
+            g_print("http://musicbrainz.org/bare/cdlookup.html?id=%s&tracks=%d&toc=%s\n", discID, (int)trackCount, encodedToc->str);
+            g_print("If you want to rip anyways, re-run with the -f flag\n");
 
             g_string_free(encodedToc, TRUE);
             g_main_loop_quit(loop);
@@ -202,7 +267,6 @@ static gboolean tag_cb(GstBus *bus, GstMessage *msg, gpointer data)
         mb_release_filter_free(filter);
         mb_query_free(q);
         mb_webservice_free(svc);
-        g_free(id_str);
         startNextTrack();
     }
     gst_tag_list_free(tags);
@@ -229,6 +293,7 @@ static gboolean warning_cb(GstBus *bus, GstMessage *msg, gpointer data)
     g_error_free(err);
 }
 
+#define PARANOIA_MODE_FULL 0xff
 
 static GstElement *buildPipeline()
 {
@@ -238,6 +303,10 @@ static GstElement *buildPipeline()
     GstElement *encoder = gst_element_factory_make("flacenc", NULL);
     GstElement *tagger = gst_element_factory_make("flactag", NULL);
     GstElement *output = gst_element_factory_make("filesink", NULL);
+
+    g_object_set(G_OBJECT(cdSource), "paranoia-mode", PARANOIA_MODE_FULL, NULL);
+    g_signal_connect(G_OBJECT(cdSource), "uncorrected-error", G_CALLBACK(uncorrectedError_cb), NULL); 
+    g_signal_connect(G_OBJECT(cdSource), "transport-error", G_CALLBACK(transportError_cb), NULL); 
 
     g_object_set(G_OBJECT(output), "location", "/dev/null", NULL);
 
@@ -255,16 +324,18 @@ static GstElement *buildPipeline()
     g_signal_connect(bus, "message::state-changed", G_CALLBACK(state_cb), pipe);
     g_signal_connect(bus, "message::tag", G_CALLBACK(tag_cb), pipe);
     g_signal_connect(bus, "message::eos", G_CALLBACK(eos_cb), pipe);
+    g_signal_connect(bus, "message::element", G_CALLBACK(element_cb), pipe);
 
     return pipe;
 }
 
 int main(int argc, char* argv[])
 {
-    GError *error;
-    GOptionContext *context;
+    GError *error = NULL;
+    GOptionContext *context = NULL;
 
     g_thread_init(NULL);
+    GST_DEBUG_CATEGORY_INIT(rippit, "rippit", 0, "Rippit Debugging");
 
     context = g_option_context_new(" - Rip an audio CD, without any nonsense.");
     g_option_context_add_main_entries(context, entries, NULL);
@@ -284,6 +355,9 @@ int main(int argc, char* argv[])
         g_print("rippit version %s\n", RIPPIT_VERSION_STRING);
         exit(0);
     }
+
+    if (singleTrack > -1)
+        curTrack = singleTrack-1;
 
     pipeline = buildPipeline();
 
