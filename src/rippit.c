@@ -54,18 +54,46 @@ static int curTrack = 0;
 static guint64 trackCount = 0;
 static gchar *discID;
 static int singleTrack = -1;
+static GArray *skippedTracks = 0;
 
 static gboolean printVersion = FALSE;
 static gboolean forceRip = FALSE;
+static gboolean ignoreStall = FALSE;
 
+static void startNextTrack();
 static gboolean printProgress(gpointer data);
+static gboolean isStalled();
+static gboolean addSkippedTrack(const gchar *option_name, const gchar *value, gpointer data, GError **error);
+
+#define RIPPIT_ERROR rippit_error_quark ()
+#define RIPPIT_ERROR_PARAMS 1
+
+GQuark rippit_error_quark()
+{
+    return g_quark_from_static_string("rippit-error-quark");
+}
 
 static GOptionEntry entries[] =
 {
     { "version", 'v', 0, G_OPTION_ARG_NONE, &printVersion, "Display version", NULL },
     { "force-rip", 'f', 0, G_OPTION_ARG_NONE, &forceRip, "Rip the disc, even if there might be big bad errors", NULL},
-    { "track", 't', 0, G_OPTION_ARG_INT, &singleTrack, "Only rip the given track", NULL}
+    { "ignore-bad-tracks", 'i', 0, G_OPTION_ARG_NONE, &ignoreStall, "Skip damanged tracks that would otherwise take ages to recover", NULL},
+    { "track", 't', 0, G_OPTION_ARG_INT, &singleTrack, "Only rip the given track", "track"},
+    { "skip", 's', 0, G_OPTION_ARG_CALLBACK, addSkippedTrack, "Skip the given track. May be specified multiple times.", "track"},
+    NULL
 };
+
+static gboolean addSkippedTrack(const gchar *option_name, const gchar *value, gpointer data, GError **error)
+{
+    char *endPtr = NULL;
+    int skippedTrack = strtol(value, &endPtr, 10);
+    if (*endPtr != '\0') {
+        g_set_error(error, RIPPIT_ERROR, RIPPIT_ERROR_PARAMS, "Invalid track number: %s", value);
+        return FALSE;
+    }
+    g_array_append_val(skippedTracks, skippedTrack);
+    return TRUE;
+}
 
 static void uncorrectedError_cb(GstElement *element, gint sector, gpointer data)
 {
@@ -95,7 +123,29 @@ static guint64 getDuration()
     return duration;
 }
 
+static gboolean skipIfStalled()
+{
+    GST_DEBUG("Skipping?");
+    if (isStalled() && ignoreStall) {
+        g_printf("\nSkipping track in the hopes that others may work.\n");
+        startNextTrack();
+    }
+    return FALSE;
+}
+
 static gboolean checkForStall()
+{
+    if (isStalled()) {
+        // Print some spaces that printProgress() will fill in later
+        g_printf("      Still waiting to decode track. Is the disc scratched?\r");
+        printProgress(NULL);
+        g_timeout_add_seconds(5, skipIfStalled, NULL);
+        return FALSE;
+    }
+    return TRUE;
+}
+
+static gboolean isStalled()
 {
     static int lastTrack = -1;
     static int lastPos = 0;
@@ -103,17 +153,14 @@ static gboolean checkForStall()
     if (lastTrack != curTrack) {
         lastTrack = curTrack;
         lastPos = 0;
-        return TRUE;
+        return FALSE;
     }
 
     if (lastPos != getPos()) {
         lastPos = getPos();
-        return TRUE;
+        return FALSE;
     }
-    // Print some spaces that printProgress() will fill in later
-    g_printf("      Still waiting to decode track. Is the disc scratched?\r");
-    printProgress(NULL);
-    return FALSE;
+    return TRUE;
 }
 
 static gboolean printProgress(gpointer data)
@@ -135,13 +182,22 @@ static void startNextTrack()
     MbTrack track;
     MbArtist artist;
     GstTagList *tags;
+    int i;
+    gboolean shouldSkip = FALSE;
 
     // Reset the stall detector
     checkForStall();
 
     g_timeout_add_seconds(5, checkForStall, NULL);
 
-    curTrack++;
+    do {
+        shouldSkip = FALSE;
+        curTrack++;
+        for(i = 0;i<skippedTracks->len;i++) {
+            if (g_array_index(skippedTracks, int, i) == curTrack)
+                shouldSkip = TRUE;
+        }
+    } while (shouldSkip);
     if (curTrack > trackCount || (singleTrack > -1 && curTrack > singleTrack)) {
         g_main_loop_quit(loop);
         return;
@@ -336,6 +392,8 @@ int main(int argc, char* argv[])
 
     g_thread_init(NULL);
     GST_DEBUG_CATEGORY_INIT(rippit, "rippit", 0, "Rippit Debugging");
+
+    skippedTracks = g_array_new(FALSE, FALSE, sizeof(int));
 
     context = g_option_context_new(" - Rip an audio CD, without any nonsense.");
     g_option_context_add_main_entries(context, entries, NULL);
