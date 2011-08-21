@@ -1,6 +1,9 @@
 set(rippit_SRCS
 	rippit.c
+    love.c
 )
+
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 include_directories(${GSTREAMER_INCLUDE_DIRS} ${MUSICBRAINZ_INCLUDE_DIRS})
 

@@ -23,6 +23,8 @@
 #include <musicbrainz3/mb_c.h>
 #include <stdio.h>
 
+#include "love.h"
+
 #define RIPPIT_VERSION_MAJOR 0
 #define RIPPIT_VERSION_MINOR 0
 #define RIPPIT_VERSION_MICRO 1
@@ -59,6 +61,7 @@ static GArray *skippedTracks = 0;
 static gboolean printVersion = FALSE;
 static gboolean forceRip = FALSE;
 static gboolean ignoreStall = FALSE;
+static gboolean showSomeLove = FALSE;
 
 static void startNextTrack();
 static gboolean printProgress(gpointer data);
@@ -80,6 +83,7 @@ static GOptionEntry entries[] =
     { "ignore-bad-tracks", 'i', 0, G_OPTION_ARG_NONE, &ignoreStall, "Skip damanged tracks that would otherwise take ages to recover", NULL},
     { "track", 't', 0, G_OPTION_ARG_INT, &singleTrack, "Only rip the given track", "track"},
     { "skip", 's', 0, G_OPTION_ARG_CALLBACK, addSkippedTrack, "Skip the given track. May be specified multiple times.", "track"},
+    { "love", 'l', G_OPTION_FLAG_HIDDEN, G_OPTION_ARG_NONE, &showSomeLove, "Show some love", NULL},
     NULL
 };
 
@@ -411,6 +415,11 @@ int main(int argc, char* argv[])
 
     if (printVersion) {
         g_print("rippit version %s\n", RIPPIT_VERSION_STRING);
+        exit(0);
+    }
+
+    if (showSomeLove) {
+        rippit_show_some_love();
         exit(0);
     }
 
