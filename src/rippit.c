@@ -17,33 +17,14 @@
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 //
 
+#include "rippit.h"
+
+#include "love.h"
 #include <gst/gst.h>
 #include <gst/tag/tag.h>
 #include <string.h>
 #include <musicbrainz3/mb_c.h>
 #include <stdio.h>
-
-#include "love.h"
-
-#define RIPPIT_VERSION_MAJOR 0
-#define RIPPIT_VERSION_MINOR 0
-#define RIPPIT_VERSION_MICRO 1
-
-#define RIPPIT_VERSION \
-    ((RIPPIT_VERSION_MAJOR << 8) | \
-     (RIPPIT_VERSION_MINOR << 4) | \
-     (RIPPIT_VERSION_MICRO))
-
-#define STRINGIZE2(s) #s
-#define STRINGIZE(s) STRINGIZE2(s)
-
-#define RIPPIT_VERSION_STRING \
-    STRINGIZE(RIPPIT_VERSION_MAJOR) "." \
-    STRINGIZE(RIPPIT_VERSION_MINOR) "." \
-    STRINGIZE(RIPPIT_VERSION_MICRO)
-
-GST_DEBUG_CATEGORY_STATIC(rippit);
-#define GST_CAT_DEFAULT rippit
 
 static GMainLoop *loop;
 static GstElement *pipeline;
@@ -67,9 +48,6 @@ static void startNextTrack();
 static gboolean printProgress(gpointer data);
 static gboolean isStalled();
 static gboolean addSkippedTrack(const gchar *option_name, const gchar *value, gpointer data, GError **error);
-
-#define RIPPIT_ERROR rippit_error_quark ()
-#define RIPPIT_ERROR_PARAMS 1
 
 GQuark rippit_error_quark()
 {
