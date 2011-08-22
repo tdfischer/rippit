@@ -38,6 +38,7 @@ static guint64 trackCount = 0;
 static gchar *discID;
 static int singleTrack = -1;
 static GArray *skippedTracks = 0;
+static gchar *outputMessage = 0;
 
 static gboolean printVersion = FALSE;
 static gboolean forceRip = FALSE;
@@ -45,9 +46,10 @@ static gboolean ignoreStall = FALSE;
 static gboolean showSomeLove = FALSE;
 
 static void startNextTrack();
-static gboolean printProgress(gpointer data);
+static void printProgress(gboolean updateTicker);
 static gboolean isStalled();
 static gboolean addSkippedTrack(const gchar *option_name, const gchar *value, gpointer data, GError **error);
+static gboolean checkForStall();
 
 GQuark rippit_error_quark()
 {
@@ -77,16 +79,26 @@ static gboolean addSkippedTrack(const gchar *option_name, const gchar *value, gp
     return TRUE;
 }
 
+static void setOutputMessage(const gchar *msg, ...)
+{
+    va_list ap;
+    va_start(ap, msg);
+    g_free(outputMessage);
+    outputMessage = g_strdup_vprintf(msg, ap);
+    va_end(ap);
+    printProgress(FALSE);
+}
+
 static void uncorrectedError_cb(GstElement *element, gint sector, gpointer data)
 {
     GST_DEBUG("Disk error in sector %d", sector);
-    g_printf("      Disk is scratched at sector %d. Data was lost. I'm sorry :(", sector);
+    setOutputMessage("Disk is scratched at sector %d. Data was lost. I'm sorry :(", sector);
 }
 
 static void transportError_cb(GstElement *element, gint sector, gpointer data)
 {
     GST_DEBUG("Possible disk error in sector %d", sector);
-    g_printf("      Disk is scratched at sector %d. Recovering...", sector);
+    setOutputMessage("Disk is scratched at sector %d. Recovering...", sector);
 }
 
 static guint64 getPos()
@@ -108,8 +120,10 @@ static guint64 getDuration()
 static gboolean skipIfStalled()
 {
     GST_DEBUG("Skipping?");
-    if (isStalled() && ignoreStall) {
-        g_printf("\nSkipping track in the hopes that others may work.\n");
+    if (!isStalled()) {
+        g_timeout_add_seconds(5, checkForStall, NULL);
+    } else if (ignoreStall) {
+        setOutputMessage("Skipping track in the hopes that others may work. Sorry it didn't work out.");
         startNextTrack();
     }
     return FALSE;
@@ -118,9 +132,7 @@ static gboolean skipIfStalled()
 static gboolean checkForStall()
 {
     if (isStalled()) {
-        // Print some spaces that printProgress() will fill in later
-        g_printf("      Still waiting to decode track. Is the disc scratched?\r");
-        printProgress(NULL);
+        setOutputMessage("Still waiting to decode track. Is the disc scratched?");
         g_timeout_add_seconds(5, skipIfStalled, NULL);
         return FALSE;
     }
@@ -145,14 +157,26 @@ static gboolean isStalled()
     return TRUE;
 }
 
-static gboolean printProgress(gpointer data)
+static gchar *ticker[] = {"-", "\\", "|", "/", '\0'};
+
+static gboolean cb_progress(gpointer data)
+{
+    printProgress(TRUE);
+    return TRUE;
+}
+
+static void printProgress(gboolean updateTicker)
 {
     int pos = 0;
+    static int tickerPos = 0;
     if (getDuration() > 0)
         pos = ((double)getPos()/(double)getDuration())*100;
-    g_printf("%3.d%%\r", pos);
-    sync();
-    return TRUE;
+    if (updateTicker)
+        tickerPos++;
+    if (ticker[tickerPos] == '\0')
+        tickerPos = 0;
+    g_printf("\r%s %3.d%% %s\r", ticker[tickerPos], pos, outputMessage);
+    fflush(stdout);
 }
 
 static void startNextTrack()
@@ -168,7 +192,7 @@ static void startNextTrack()
     gboolean shouldSkip = FALSE;
 
     // Reset the stall detector
-    checkForStall();
+    isStalled();
 
     g_timeout_add_seconds(5, checkForStall, NULL);
 
@@ -181,14 +205,13 @@ static void startNextTrack()
         }
     } while (shouldSkip);
     if (curTrack > trackCount || (singleTrack > -1 && curTrack > singleTrack)) {
+        g_print("\n");
+        setOutputMessage("Complete!");
+        g_print("\n");
         g_main_loop_quit(loop);
         return;
     }
 
-    if (curTrack > 1) {
-        printProgress(NULL);
-        g_print("\n");
-    }
 
     GST_DEBUG("Starting with track %d", curTrack);
 
@@ -222,15 +245,16 @@ static void startNextTrack()
         outname = g_strdup_printf("%s - %d.flac", discID, curTrack);
     }
 
+    g_print("\n");
+    setOutputMessage("Ripping to %s", outname);
+
     gst_element_set_state(filesink, GST_STATE_NULL);
     g_object_set(G_OBJECT(filesink), "location", outname, NULL);
     gst_element_set_state(filesink, GST_STATE_READY);
-    g_print("Writing to %s:\n", outname);
 
     g_free(outname);
     g_object_set(G_OBJECT(cdsrc), "track", curTrack, NULL);
     gst_element_set_state(pipeline, GST_STATE_PLAYING);
-    g_timeout_add_full(G_PRIORITY_LOW, 100, printProgress, NULL, NULL);
 }
 
 static gboolean element_cb(GstBus *bus, GstMessage *msg, gpointer data)
@@ -262,6 +286,7 @@ static gboolean tag_cb(GstBus *bus, GstMessage *msg, gpointer data)
     GstTagList *tags = NULL;
     gst_message_parse_tag(msg, &tags);
     if (!gotData && gst_tag_list_get_string(tags, GST_TAG_CDDA_MUSICBRAINZ_DISCID, &discID)) {
+        setOutputMessage("Looking up disc information...");
         int releases;
         gotData = TRUE;
         GST_DEBUG("Got MusicBrainz id %s", discID);
@@ -411,9 +436,12 @@ int main(int argc, char* argv[])
 
     pipeline = buildPipeline();
 
+    setOutputMessage("Opening device...");
+
     gst_element_set_state(pipeline, GST_STATE_PAUSED);
     GstFormat format = gst_format_get_by_nick("track");
-    gst_element_query_duration(pipeline, &format, &trackCount);
+    gst_element_query_duration(GST_ELEMENT(pipeline), &format, &trackCount);
+    g_timeout_add_full(G_PRIORITY_LOW, 200, cb_progress, NULL, NULL);
 
     loop = g_main_loop_new(NULL, FALSE);
     g_main_loop_run(loop);
