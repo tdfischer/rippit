@@ -25,6 +25,7 @@
 #include <string.h>
 #include <musicbrainz3/mb_c.h>
 #include <stdio.h>
+#include <glib/gprintf.h>
 
 static GMainLoop *loop;
 static GstElement *pipeline;
@@ -34,10 +35,9 @@ static GstTagSetter *tag_setter;
 static MbRelease discData;
 static gboolean gotData = FALSE;
 static int curTrack = 0;
-static guint64 trackCount = 0;
+static gint64 trackCount = 0;
 static gchar *discID;
 static int singleTrack = -1;
-static GArray *skippedTracks = 0;
 static gchar *outputMessage = 0;
 
 static gboolean printVersion = FALSE;
@@ -48,7 +48,6 @@ static gboolean showSomeLove = FALSE;
 static void startNextTrack();
 static void printProgress(gboolean updateTicker);
 static gboolean isStalled();
-static gboolean addSkippedTrack(const gchar *option_name, const gchar *value, gpointer data, GError **error);
 static gboolean checkForStall();
 
 GQuark rippit_error_quark()
@@ -62,22 +61,9 @@ static GOptionEntry entries[] =
     { "force-rip", 'f', 0, G_OPTION_ARG_NONE, &forceRip, "Rip the disc, even if there might be big bad errors", NULL},
     { "ignore-bad-tracks", 'i', 0, G_OPTION_ARG_NONE, &ignoreStall, "Skip damanged tracks that would otherwise take ages to recover", NULL},
     { "track", 't', 0, G_OPTION_ARG_INT, &singleTrack, "Only rip the given track", "track"},
-    { "skip", 's', 0, G_OPTION_ARG_CALLBACK, addSkippedTrack, "Skip the given track. May be specified multiple times.", "track"},
     { "love", 'l', G_OPTION_FLAG_HIDDEN, G_OPTION_ARG_NONE, &showSomeLove, "Show some love", NULL},
-    NULL
+    {NULL}
 };
-
-static gboolean addSkippedTrack(const gchar *option_name, const gchar *value, gpointer data, GError **error)
-{
-    char *endPtr = NULL;
-    int skippedTrack = strtol(value, &endPtr, 10);
-    if (*endPtr != '\0') {
-        g_set_error(error, RIPPIT_ERROR, RIPPIT_ERROR_PARAMS, "Invalid track number: %s", value);
-        return FALSE;
-    }
-    g_array_append_val(skippedTracks, skippedTrack);
-    return TRUE;
-}
 
 static void setOutputMessage(const gchar *msg, ...)
 {
@@ -103,7 +89,7 @@ static void transportError_cb(GstElement *element, gint sector, gpointer data)
 
 static guint64 getPos()
 {
-    guint64 pos = 0;
+    gint64 pos = 0;
     GstFormat format = GST_FORMAT_TIME;
     gst_element_query_position (GST_ELEMENT(pipeline), &format, &pos);
     return pos;
@@ -111,7 +97,7 @@ static guint64 getPos()
 
 static guint64 getDuration()
 {
-    guint64 duration = 0;
+    gint64 duration = 0;
     GstFormat format = GST_FORMAT_TIME;
     gst_element_query_duration(GST_ELEMENT(pipeline), &format, &duration);
     return duration;
@@ -188,22 +174,13 @@ static void startNextTrack()
     MbTrack track;
     MbArtist artist;
     GstTagList *tags;
-    int i;
-    gboolean shouldSkip = FALSE;
 
     // Reset the stall detector
     isStalled();
 
     g_timeout_add_seconds(5, checkForStall, NULL);
 
-    do {
-        shouldSkip = FALSE;
-        curTrack++;
-        for(i = 0;i<skippedTracks->len;i++) {
-            if (g_array_index(skippedTracks, int, i) == curTrack)
-                shouldSkip = TRUE;
-        }
-    } while (shouldSkip);
+    curTrack++;
     if (curTrack > trackCount || (singleTrack > -1 && curTrack > singleTrack)) {
         g_print("\n");
         setOutputMessage("Complete!");
@@ -261,11 +238,13 @@ static gboolean element_cb(GstBus *bus, GstMessage *msg, gpointer data)
 {
     const GstStructure *str = gst_message_get_structure(msg);
     GST_DEBUG("Got element message %s", gst_structure_get_name(str));
+    return TRUE;
 }
 
 static gboolean eos_cb(GstBus *bus, GstMessage *msg, gpointer data)
 {
     startNextTrack();
+    return TRUE;
 }
 
 static gboolean state_cb(GstBus *bus, GstMessage *msg, gpointer data)
@@ -279,6 +258,7 @@ static gboolean state_cb(GstBus *bus, GstMessage *msg, gpointer data)
     name = gst_element_get_name(msg->src);
     GST_DEBUG("Element %s changed state from %s to %s", name, gst_element_state_get_name(oldState), gst_element_state_get_name(newState));
     g_free(name);
+    return TRUE;
 }
 
 static gboolean tag_cb(GstBus *bus, GstMessage *msg, gpointer data)
@@ -323,7 +303,7 @@ static gboolean tag_cb(GstBus *bus, GstMessage *msg, gpointer data)
 
             g_string_free(encodedToc, TRUE);
             g_main_loop_quit(loop);
-            return;
+            return TRUE;
         }
         GST_DEBUG("Got %d results", releases);
         mb_result_list_free(results);
@@ -333,6 +313,7 @@ static gboolean tag_cb(GstBus *bus, GstMessage *msg, gpointer data)
         startNextTrack();
     }
     gst_tag_list_free(tags);
+    return TRUE;
 }
 
 static gboolean error_cb(GstBus *bus, GstMessage *msg, gpointer data)
@@ -344,6 +325,7 @@ static gboolean error_cb(GstBus *bus, GstMessage *msg, gpointer data)
     g_warning("%d %d: %s", err->domain, err->code, err->message);
     g_main_loop_quit(loop);
     g_error_free(err);
+    return TRUE;
 }
 
 static gboolean warning_cb(GstBus *bus, GstMessage *msg, gpointer data)
@@ -354,6 +336,7 @@ static gboolean warning_cb(GstBus *bus, GstMessage *msg, gpointer data)
     g_free(debug);
     g_warning("%d %d: %s", err->domain, err->code, err->message);
     g_error_free(err);
+    return TRUE;
 }
 
 #define PARANOIA_MODE_FULL 0xff
@@ -400,8 +383,6 @@ int main(int argc, char* argv[])
     g_thread_init(NULL);
     GST_DEBUG_CATEGORY_INIT(rippit, "rippit", 0, "Rippit Debugging");
 
-    skippedTracks = g_array_new(FALSE, FALSE, sizeof(int));
-
     context = g_option_context_new(" - Rip an audio CD, without any nonsense.");
     g_option_context_add_main_entries(context, entries, NULL);
     g_option_context_add_group(context, gst_init_get_option_group());
@@ -445,4 +426,5 @@ int main(int argc, char* argv[])
 
     loop = g_main_loop_new(NULL, FALSE);
     g_main_loop_run(loop);
+    return 0;
 }
