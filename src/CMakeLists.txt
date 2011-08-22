@@ -3,6 +3,8 @@ set(rippit_SRCS
     love.c
 )
 
+set(CMAKE_C_FLAGS -Wall)
+
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 include_directories(${GSTREAMER_INCLUDE_DIRS} ${MUSICBRAINZ_INCLUDE_DIRS})
