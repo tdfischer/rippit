@@ -401,7 +401,12 @@ int main(int argc, char* argv[])
         exit(0);
     }
 
-    if (singleTrack > -1)
+    if (singleTrack == 0) {
+        g_print("Tracks start at 1. Sorry for any confusion.\n");
+        exit(0);
+    }
+
+    if (singleTrack > 0)
         curTrack = singleTrack-1;
 
     pipeline = buildPipeline();
