@@ -17,14 +17,19 @@
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 //
 
-#include <glib/gquark.h>
-#include <gst/gstinfo.h>
-#include "rippitversion.h"
+#define RIPPIT_VERSION_MAJOR @RIPPIT_VERSION_MAJOR@
+#define RIPPIT_VERSION_MINOR @RIPPIT_VERSION_MINOR@
+#define RIPPIT_VERSION_MICRO @RIPPIT_VERSION_MICRO@
 
-GST_DEBUG_CATEGORY_STATIC(rippit);
-#define GST_CAT_DEFAULT rippit
+#define RIPPIT_VERSION \
+    ((RIPPIT_VERSION_MAJOR << 8) | \
+     (RIPPIT_VERSION_MINOR << 4) | \
+     (RIPPIT_VERSION_MICRO))
 
-#define RIPPIT_ERROR rippit_error_quark ()
-#define RIPPIT_ERROR_PARAMS 1
+#define STRINGIZE2(s) #s
+#define STRINGIZE(s) STRINGIZE2(s)
 
-GQuark rippit_error_quark();
+#define RIPPIT_VERSION_STRING \
+    STRINGIZE(RIPPIT_VERSION_MAJOR) "." \
+    STRINGIZE(RIPPIT_VERSION_MINOR) "." \
+    STRINGIZE(RIPPIT_VERSION_MICRO)
