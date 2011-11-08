@@ -1,4 +1,4 @@
-// rippit - A no-nonsense program to rip audio CDs
+// rippit - A no-nonsense program to rip multimedia
 //
 // Copyright (C) 2011 Trever Fischer <tdfischer@fedoraproject.org>
 //
