@@ -51,6 +51,8 @@ static void printProgress(gboolean updateTicker);
 static gboolean isStalled();
 static gboolean checkForStall();
 
+static gchar **extraArgs = 0;
+
 GQuark rippit_error_quark()
 {
     return g_quark_from_static_string("rippit-error-quark");
@@ -63,6 +65,7 @@ static GOptionEntry entries[] =
     { "ignore-bad-tracks", 'i', 0, G_OPTION_ARG_NONE, &ignoreStall, "Skip damanged tracks that would otherwise take ages to recover", NULL},
     { "track", 't', 0, G_OPTION_ARG_INT, &singleTrack, "Only rip the given track", "track"},
     { "love", 'l', G_OPTION_FLAG_HIDDEN, G_OPTION_ARG_NONE, &showSomeLove, "Show some love", NULL},
+    { G_OPTION_REMAINING, 0, 0, G_OPTION_ARG_STRING_ARRAY, &extraArgs, NULL, NULL},
     {NULL}
 };
 
@@ -466,7 +469,7 @@ int main(int argc, char* argv[])
     g_thread_init(NULL);
     GST_DEBUG_CATEGORY_INIT(rippit, "rippit", 0, "Rippit Debugging");
 
-    context = g_option_context_new(" - Rip an audio CD, without any nonsense.");
+    context = g_option_context_new("- Rip an audio CD, without any nonsense.");
     g_option_context_add_main_entries(context, entries, NULL);
     g_option_context_add_group(context, gst_init_get_option_group());
 
@@ -475,9 +478,9 @@ int main(int argc, char* argv[])
         exit(1);
     }
 
-    if (argc > 1) {
+    if (extraArgs && g_strv_length(extraArgs) > 0) {
         struct stat buf;
-        device = argv[1];
+        device = extraArgs[0];
         if (stat(device, &buf) != 0) {
             g_print("Could not find '%s'\n", device);
             exit(1);
