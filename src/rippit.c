@@ -39,6 +39,7 @@ static gint64 trackCount = 0;
 static gchar *discID;
 static int singleTrack = -1;
 static gchar *outputMessage = 0;
+static gchar *device = 0;
 
 static gboolean printVersion = FALSE;
 static gboolean forceRip = FALSE;
@@ -350,6 +351,10 @@ static GstElement *buildPipeline()
     GstElement *tagger = gst_element_factory_make("flactag", NULL);
     GstElement *output = gst_element_factory_make("filesink", NULL);
 
+    if (device) {
+        g_object_set(G_OBJECT(cdSource), "device", device, NULL);
+    }
+
     g_object_set(G_OBJECT(cdSource), "paranoia-mode", PARANOIA_MODE_FULL, NULL);
     g_signal_connect(G_OBJECT(cdSource), "uncorrected-error", G_CALLBACK(uncorrectedError_cb), NULL); 
     g_signal_connect(G_OBJECT(cdSource), "transport-error", G_CALLBACK(transportError_cb), NULL); 
@@ -390,6 +395,16 @@ int main(int argc, char* argv[])
     if (!g_option_context_parse(context, &argc, &argv, &error)) {
         g_print("Bad arguments: %s\n", error->message);
         exit(1);
+    }
+
+    if (argc > 1) {
+        struct stat buf;
+        device = argv[1];
+        if (stat(device, &buf) != 0) {
+            g_print("Could not find '%s'\n", device);
+            exit(1);
+        }
+        g_print("Will attempt to read from '%s'\n", device);
     }
 
     if (!gst_init_check(&argc, &argv, &error)) {
