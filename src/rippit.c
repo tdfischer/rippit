@@ -100,6 +100,8 @@ static guint64 getDuration()
 {
     gint64 duration = 0;
     GstFormat format = GST_FORMAT_TIME;
+    if (pipeline == NULL)
+        return 0;
     gst_element_query_duration(GST_ELEMENT(pipeline), &format, &duration);
     return duration;
 }
