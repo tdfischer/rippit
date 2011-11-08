@@ -469,7 +469,7 @@ int main(int argc, char* argv[])
     g_thread_init(NULL);
     GST_DEBUG_CATEGORY_INIT(rippit, "rippit", 0, "Rippit Debugging");
 
-    context = g_option_context_new("- Rip an audio CD, without any nonsense.");
+    context = g_option_context_new("[device-or-file] - Rip an audio CD, without any nonsense.");
     g_option_context_add_main_entries(context, entries, NULL);
     g_option_context_add_group(context, gst_init_get_option_group());
 
