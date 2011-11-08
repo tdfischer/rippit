@@ -344,7 +344,7 @@ static gboolean warning_cb(GstBus *bus, GstMessage *msg, gpointer data)
 
 #define PARANOIA_MODE_FULL 0xff
 
-static GstElement *buildPipeline()
+static GstElement *buildCDPipeline()
 {
     GstElement *pipe = gst_pipeline_new(NULL);
 
@@ -380,6 +380,82 @@ static GstElement *buildPipeline()
     g_signal_connect(bus, "message::element", G_CALLBACK(element_cb), pipe);
 
     return pipe;
+}
+
+static GstElement *buildDVDPipeline()
+{
+    GstElement *pipe = gst_pipeline_new(NULL);
+    GstElement *dvdSource = gst_element_factory_make("rsndvdbin", NULL);
+    GstElement *dvdSpu = gst_element_factory_make("dvdspu", NULL);
+    GstElement *videoEncoder = gst_element_factory_make("x264enc", NULL);
+    GstElement *audioEncoder = gst_element_factory_make("ffenc_ac3", NULL);
+    GstElement *muxer = gst_element_factory_make("matroskamux", NULL);
+    GstElement *output = gst_element_factory_make("filesink", NULL);
+
+    if (!videoEncoder || !audioEncoder || !dvdSpu) {
+        g_print("Error: You're missing some vital gstreamer elements!\n");
+        exit(1);
+    }
+
+    if (device) {
+        g_object_set(G_OBJECT(dvdSource), "device", device, NULL);
+    }
+
+    g_object_set(G_OBJECT(output), "location", "/dev/null", NULL);
+    g_object_set(G_OBJECT(muxer), "writing-app", "Rippit " RIPPIT_VERSION_STRING, NULL);
+
+    gst_bin_add_many(GST_BIN(pipe), dvdSource, dvdSpu, videoEncoder, audioEncoder, muxer, output, NULL);
+
+    gst_element_link_pads(dvdSource, "subpicture", dvdSpu, "subpicture");
+    gst_element_link_pads(dvdSource, "video", dvdSpu, "video");
+    gst_element_link(dvdSpu, videoEncoder);
+    gst_element_link(dvdSource, audioEncoder);
+    gst_element_link(videoEncoder, muxer);
+    gst_element_link(audioEncoder, muxer);
+
+    gst_element_link(muxer, output);
+
+    GstBus *bus = gst_pipeline_get_bus(GST_PIPELINE(pipe));
+    gst_bus_add_signal_watch(bus);
+    g_signal_connect(bus, "message::error", G_CALLBACK(error_cb), pipe);
+    g_signal_connect(bus, "message::warning", G_CALLBACK(warning_cb), pipe);
+    g_signal_connect(bus, "message::state-changed", G_CALLBACK(state_cb), pipe);
+    g_signal_connect(bus, "message::tag", G_CALLBACK(tag_cb), pipe);
+    g_signal_connect(bus, "message::eos", G_CALLBACK(eos_cb), pipe);
+    g_signal_connect(bus, "message::element", G_CALLBACK(element_cb), pipe);
+
+
+    return pipe;
+}
+
+static gboolean probeElement(const gchar *name)
+{
+    gboolean ret = TRUE;
+    GstElement *probe = gst_element_factory_make(name, NULL);
+    if (!probe)
+        return FALSE;
+    g_object_set(G_OBJECT(probe), "device", device, NULL);
+    if (gst_element_set_state(probe, GST_STATE_PAUSED) == GST_STATE_CHANGE_FAILURE)
+        ret = FALSE;
+    gst_element_set_state(probe, GST_STATE_NULL);
+    gst_object_unref(probe);
+    return ret;
+}
+
+static GstElement *buildPipeline()
+{
+    GstElement *pipeline;
+    if (probeElement("cdparanoiasrc")) {
+        setOutputMessage("Reading CD...");
+        pipeline = buildCDPipeline();
+    } else if (probeElement("rsndvdsrc")) {
+        setOutputMessage("Reading DVD...");
+        pipeline = buildDVDPipeline();
+    } else {
+        setOutputMessage("No disks found :'(");
+        return NULL;
+    }
+    return pipeline;
 }
 
 int main(int argc, char* argv[])
@@ -432,9 +508,13 @@ int main(int argc, char* argv[])
     if (singleTrack > 0)
         curTrack = singleTrack-1;
 
-    pipeline = buildPipeline();
+    setOutputMessage("Probing devices...");
 
-    setOutputMessage("Opening device...");
+    pipeline = buildPipeline();
+    if (pipeline == NULL) {
+        g_print("\n");
+        return 1;
+    }
 
     gst_element_set_state(pipeline, GST_STATE_PAUSED);
     GstFormat format = gst_format_get_by_nick("track");
