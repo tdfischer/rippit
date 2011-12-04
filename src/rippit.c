@@ -31,6 +31,7 @@ static GMainLoop *loop;
 static GstElement *pipeline;
 static GstElement *filesink;
 static GstElement *cdsrc;
+static GstElement *dvdsrc;
 static GstTagSetter *tag_setter;
 static MbRelease discData = 0;
 static gboolean gotData = FALSE;
@@ -214,34 +215,58 @@ static void startNextTrack()
 
     GST_DEBUG("Starting with track %d", curTrack);
 
-    if (!forceRip) {
-        track = mb_release_get_track(discData, curTrack-1);
-        artist = mb_track_get_artist(track);
-        if (!artist) {
-            artist = mb_release_get_artist(discData);
-        }
-        mb_artist_get_name(artist, artistName, 256);
-        mb_track_get_title(track, trackName, 256);
-        mb_release_get_title(discData, albumName, 256);
-        outname = g_strdup_printf("%s - %s.flac", artistName, trackName);
-
+    if (!discData) {
         gst_element_set_state(pipeline, GST_STATE_NULL);
-
-        tags = gst_tag_list_new_full(
-            GST_TAG_TITLE, trackName,
-            GST_TAG_ARTIST, artistName,
-            GST_TAG_ALBUM, albumName,
-            GST_TAG_APPLICATION_NAME, "rippit",
-            GST_TAG_TRACK_NUMBER, curTrack,
-            NULL
-        );
-
-        gst_element_set_state(pipeline, GST_STATE_READY);
-        gst_tag_setter_merge_tags(tag_setter, tags, GST_TAG_MERGE_REPLACE_ALL);
-
-        gst_tag_list_free(tags);
+        outname = g_strdup_printf("DVD %d.mkv", curTrack);
     } else {
-        outname = g_strdup_printf("%s - %d.flac", discID, curTrack);
+        if (!forceRip) {
+            track = mb_release_get_track(discData, curTrack-1);
+            artist = mb_track_get_artist(track);
+            if (!artist) {
+                artist = mb_release_get_artist(discData);
+            }
+            mb_artist_get_name(artist, artistName, 256);
+            mb_track_get_title(track, trackName, 256);
+            mb_release_get_title(discData, albumName, 256);
+            outname = g_strdup_printf("%s - %s.flac", artistName, trackName);
+
+            gst_element_set_state(pipeline, GST_STATE_NULL);
+
+            tags = gst_tag_list_new_full(
+                GST_TAG_TITLE, trackName,
+                GST_TAG_ARTIST, artistName,
+                GST_TAG_ALBUM, albumName,
+                GST_TAG_APPLICATION_NAME, "rippit",
+                GST_TAG_TRACK_NUMBER, curTrack,
+                NULL
+            );
+
+            gst_element_set_state(pipeline, GST_STATE_READY);
+            gst_tag_setter_merge_tags(tag_setter, tags, GST_TAG_MERGE_REPLACE_ALL);
+
+            gst_tag_list_free(tags);
+        } else {
+            gst_element_set_state(pipeline, GST_STATE_NULL);
+            outname = g_strdup_printf("%s - %d.flac", discID, curTrack);
+        }
+    }
+
+    if (cdsrc) {
+        g_object_set(G_OBJECT(cdsrc), "track", curTrack, NULL);
+    } else {
+        gint64 titleLength = 0;
+        gst_element_set_state(dvdsrc, GST_STATE_NULL);
+        g_object_set(G_OBJECT(dvdsrc), "title", curTrack, NULL);
+        gst_element_set_state(dvdsrc, GST_STATE_PAUSED);
+        GstFormat timeFormat = gst_format_get_by_nick("time");
+        gst_element_query_duration(GST_ELEMENT(dvdsrc), &timeFormat, &titleLength);
+        gst_element_set_state(dvdsrc, GST_STATE_NULL);
+        if (titleLength == 0) {
+            setOutputMessage("Skipping title %d, it appears to be a dummy title.", curTrack);
+            startNextTrack();
+            g_free(outname);
+            return;
+        }
     }
 
     g_print("\n");
@@ -406,14 +431,23 @@ static GstElement *buildCDPipeline()
 static GstElement *buildDVDPipeline()
 {
     GstElement *pipe = gst_pipeline_new(NULL);
-    GstElement *dvdSource = gst_element_factory_make("rsndvdbin", NULL);
-    GstElement *dvdSpu = gst_element_factory_make("dvdspu", NULL);
+    GstElement *dvdSource = gst_element_factory_make("dvdreadsrc", NULL);
+    dvdsrc = dvdSource;
+    GstElement *dvdDemux = gst_element_factory_make("dvddemux", NULL);
+    GstElement *mpegDec = gst_element_factory_make("mpeg2dec", NULL);
+    GstElement *videoQueue = gst_element_factory_make("queue", NULL);
+    GstElement *audioQueue = gst_element_factory_make("queue", NULL);
+    GstElement *videoOutQueue = gst_element_factory_make("queue", NULL);
+    GstElement *audioOutQueue = gst_element_factory_make("queue", NULL);
+
     GstElement *videoEncoder = gst_element_factory_make("x264enc", NULL);
     GstElement *audioEncoder = gst_element_factory_make("ffenc_ac3", NULL);
+    GstElement *audioDecoder = gst_element_factory_make("decodebin2", NULL);
     GstElement *muxer = gst_element_factory_make("matroskamux", NULL);
     GstElement *output = gst_element_factory_make("filesink", NULL);
+    filesink = output;
 
-    if (!videoEncoder || !audioEncoder || !dvdSpu) {
+    if (!videoEncoder || !audioEncoder || !dvdDemux) {
         g_print("Error: You're missing some vital gstreamer elements!\n");
         exit(1);
     }
@@ -422,17 +456,30 @@ static GstElement *buildDVDPipeline()
         g_object_set(G_OBJECT(dvdSource), "device", device, NULL);
     }
 
+    // high10 profile
+    //g_object_set(G_OBJECT(videoEncoder), "profile", 4, NULL);
+    // two-pass encoding
+    //g_object_set(G_OBJECT(videoEncoder), "pass", 18, NULL);
+    g_object_set(G_OBJECT(videoEncoder), "quantizer", 40, NULL);
+
     g_object_set(G_OBJECT(output), "location", "/dev/null", NULL);
     g_object_set(G_OBJECT(muxer), "writing-app", "Rippit " RIPPIT_VERSION_STRING, NULL);
 
-    gst_bin_add_many(GST_BIN(pipe), dvdSource, dvdSpu, videoEncoder, audioEncoder, muxer, output, NULL);
+    gst_bin_add_many(GST_BIN(pipe), audioQueue, videoQueue, dvdSource, dvdDemux, mpegDec, videoEncoder, audioDecoder, audioEncoder, muxer, output, NULL);
+    gst_bin_add_many(GST_BIN(pipe), audioOutQueue, videoOutQueue, NULL);
 
-    gst_element_link_pads(dvdSource, "subpicture", dvdSpu, "subpicture");
-    gst_element_link_pads(dvdSource, "video", dvdSpu, "video");
-    gst_element_link(dvdSpu, videoEncoder);
+    gst_element_link(dvdSource, dvdDemux);
+    gst_element_link_pads(dvdDemux, "current_video", videoQueue, "sink");
+    gst_element_link_pads(dvdDemux, "current_audio", audioQueue, "sink");
+    g_signal_connect(G_OBJECT(audioDecoder), "no-more-pads", G_CALLBACK(linkDecodebin), audioEncoder);
+    gst_element_link(audioQueue, audioDecoder);
+    gst_element_link(videoQueue, mpegDec);
+    gst_element_link(mpegDec, videoEncoder);
     gst_element_link(dvdSource, audioEncoder);
-    gst_element_link(videoEncoder, muxer);
-    gst_element_link(audioEncoder, muxer);
+    gst_element_link(videoEncoder, videoOutQueue);
+    gst_element_link(audioEncoder, audioOutQueue);
+    gst_element_link(videoOutQueue, muxer);
+    gst_element_link(audioOutQueue, muxer);
 
     gst_element_link(muxer, output);
 
@@ -537,13 +584,21 @@ int main(int argc, char* argv[])
         return 1;
     }
 
+
     gst_element_set_state(pipeline, GST_STATE_PAUSED);
-    GstFormat format = gst_format_get_by_nick("track");
+    GstFormat format;
+    if (dvdsrc)
+        format = gst_format_get_by_nick("title");
+    else
+        format = gst_format_get_by_nick("track");
     gst_element_query_duration(GST_ELEMENT(pipeline), &format, &trackCount);
     g_timeout_add_full(G_PRIORITY_LOW, 200, cb_progress, NULL, NULL);
+    g_debug("Found %d tracks", trackCount);
 
     GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(pipeline), GST_DEBUG_GRAPH_SHOW_ALL, "init");
 
+    if (dvdsrc)
+        startNextTrack();
 
     loop = g_main_loop_new(NULL, FALSE);
     g_main_loop_run(loop);
