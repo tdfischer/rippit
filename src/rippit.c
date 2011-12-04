@@ -32,7 +32,7 @@ static GstElement *pipeline;
 static GstElement *filesink;
 static GstElement *cdsrc;
 static GstTagSetter *tag_setter;
-static MbRelease discData;
+static MbRelease discData = 0;
 static gboolean gotData = FALSE;
 static int curTrack = 0;
 static gint64 trackCount = 0;
