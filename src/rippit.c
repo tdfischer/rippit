@@ -469,7 +469,7 @@ static GstElement *buildPipeline()
     if (probeElement("cdparanoiasrc")) {
         setOutputMessage("Reading CD...");
         pipeline = buildCDPipeline();
-    } else if (probeElement("rsndvdsrc")) {
+    } else if (probeElement("dvdreadsrc")) {
         setOutputMessage("Reading DVD...");
         pipeline = buildDVDPipeline();
     } else {
