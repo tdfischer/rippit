@@ -47,7 +47,7 @@ static gboolean ignoreStall = FALSE;
 static gboolean showSomeLove = FALSE;
 
 static void startNextTrack();
-static void printProgress(gboolean updateTicker);
+static void printProgress(gboolean updateTicker, gboolean newline);
 static gboolean isStalled();
 static gboolean checkForStall();
 
@@ -76,7 +76,7 @@ static void setOutputMessage(const gchar *msg, ...)
     g_free(outputMessage);
     outputMessage = g_strdup_vprintf(msg, ap);
     va_end(ap);
-    printProgress(FALSE);
+    printProgress(FALSE, TRUE);
 }
 
 static void uncorrectedError_cb(GstElement *element, gint sector, gpointer data)
@@ -153,11 +153,11 @@ static gchar *ticker[] = {"-", "\\", "|", "/", '\0'};
 
 static gboolean cb_progress(gpointer data)
 {
-    printProgress(TRUE);
+    printProgress(TRUE, FALSE);
     return TRUE;
 }
 
-static void printProgress(gboolean updateTicker)
+static void printProgress(gboolean updateTicker, gboolean newline)
 {
     int pos = 0;
     static int tickerPos = 0;
@@ -167,7 +167,11 @@ static void printProgress(gboolean updateTicker)
         tickerPos++;
     if (ticker[tickerPos] == '\0')
         tickerPos = 0;
-    g_printf("\r%s %3.d%% %s\r", ticker[tickerPos], pos, outputMessage);
+    g_printf("\r%s %3.d%% %s", ticker[tickerPos], pos, outputMessage);
+    if (newline)
+        g_printf("\n");
+    else
+        g_printf("\r");
     fflush(stdout);
 }
 
