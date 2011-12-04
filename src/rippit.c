@@ -69,6 +69,17 @@ static GOptionEntry entries[] =
     {NULL}
 };
 
+static void debug_tag(const GstTagList *list, const gchar *tag, gpointer data)
+{
+    g_debug("Tag %s", tag);
+}
+
+static void linkDecodebin(GstElement *decodebin, gpointer data)
+{
+    gst_element_link(decodebin, GST_ELEMENT(data));
+    GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(pipeline), GST_DEBUG_GRAPH_SHOW_ALL, "decodebin2-link");
+}
+
 static void setOutputMessage(const gchar *msg, ...)
 {
     va_list ap;
@@ -125,6 +136,7 @@ static gboolean checkForStall()
 {
     if (isStalled()) {
         setOutputMessage("Still waiting to decode track. Is the disc scratched?");
+        GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(pipeline), GST_DEBUG_GRAPH_SHOW_ALL, "stalled");
         g_timeout_add_seconds(5, skipIfStalled, NULL);
         return FALSE;
     }
@@ -239,9 +251,9 @@ static void startNextTrack()
     g_object_set(G_OBJECT(filesink), "location", outname, NULL);
     gst_element_set_state(filesink, GST_STATE_READY);
 
-    g_free(outname);
-    g_object_set(G_OBJECT(cdsrc), "track", curTrack, NULL);
     gst_element_set_state(pipeline, GST_STATE_PLAYING);
+    GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(pipeline), GST_DEBUG_GRAPH_SHOW_ALL, outname);
+    g_free(outname);
 }
 
 static gboolean element_cb(GstBus *bus, GstMessage *msg, gpointer data)
@@ -253,6 +265,7 @@ static gboolean element_cb(GstBus *bus, GstMessage *msg, gpointer data)
 
 static gboolean eos_cb(GstBus *bus, GstMessage *msg, gpointer data)
 {
+    GST_DEBUG("End of track, advancing");
     startNextTrack();
     return TRUE;
 }
@@ -322,6 +335,7 @@ static gboolean tag_cb(GstBus *bus, GstMessage *msg, gpointer data)
         mb_webservice_free(svc);
         startNextTrack();
     }
+    gst_tag_list_foreach(tags, debug_tag, NULL);
     gst_tag_list_free(tags);
     return TRUE;
 }
@@ -527,6 +541,9 @@ int main(int argc, char* argv[])
     GstFormat format = gst_format_get_by_nick("track");
     gst_element_query_duration(GST_ELEMENT(pipeline), &format, &trackCount);
     g_timeout_add_full(G_PRIORITY_LOW, 200, cb_progress, NULL, NULL);
+
+    GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(pipeline), GST_DEBUG_GRAPH_SHOW_ALL, "init");
+
 
     loop = g_main_loop_new(NULL, FALSE);
     g_main_loop_run(loop);
