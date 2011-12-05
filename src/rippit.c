@@ -41,6 +41,7 @@ static gchar *discID;
 static int singleTrack = -1;
 static gchar *outputMessage = 0;
 static gchar *device = 0;
+static guint timeoutSource = 0;
 
 static gboolean printVersion = FALSE;
 static gboolean forceRip = FALSE;
@@ -201,7 +202,9 @@ static void startNextTrack()
     // Reset the stall detector
     isStalled();
 
-    g_timeout_add_seconds(5, checkForStall, NULL);
+    if (timeoutSource > 0)
+        g_source_remove(timeoutSource);
+    timeoutSource = g_timeout_add_seconds(5, checkForStall, NULL);
 
     curTrack++;
     if (curTrack > trackCount || (singleTrack > -1 && curTrack > singleTrack)) {
