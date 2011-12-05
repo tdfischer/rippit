@@ -71,11 +71,6 @@ static GOptionEntry entries[] =
     {NULL}
 };
 
-static void debug_tag(const GstTagList *list, const gchar *tag, gpointer data)
-{
-    g_debug("Tag %s", tag);
-}
-
 static void linkDecodebin(GstElement *decodebin, gpointer data)
 {
     gst_element_link(decodebin, GST_ELEMENT(data));
@@ -363,7 +358,6 @@ static gboolean tag_cb(GstBus *bus, GstMessage *msg, gpointer data)
         mb_webservice_free(svc);
         startNextTrack();
     }
-    gst_tag_list_foreach(tags, debug_tag, NULL);
     gst_tag_list_free(tags);
     return TRUE;
 }
