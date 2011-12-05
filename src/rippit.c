@@ -132,6 +132,7 @@ static gboolean skipIfStalled()
 
 static gboolean checkForStall()
 {
+    GST_DEBUG("stall check");
     if (isStalled()) {
         setOutputMessage("Still waiting to decode track. Is the disc scratched?");
         GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(pipeline), GST_DEBUG_GRAPH_SHOW_ALL, "stalled");
@@ -149,11 +150,13 @@ static gboolean isStalled()
     if (lastTrack != curTrack) {
         lastTrack = curTrack;
         lastPos = 0;
+        GST_DEBUG("lastTrack != curTrack");
         return FALSE;
     }
 
     if (lastPos != getPos()) {
         lastPos = getPos();
+        GST_DEBUG("lastPos != getPos");
         return FALSE;
     }
     return TRUE;
@@ -171,6 +174,7 @@ static void printProgress(gboolean updateTicker, gboolean newline)
 {
     int pos = 0;
     static int tickerPos = 0;
+    GST_DEBUG("Position %ld/%ld", getPos(), getDuration());
     if (getDuration() > 0)
         pos = ((double)getPos()/(double)getDuration())*100;
     if (updateTicker)
@@ -370,6 +374,7 @@ static gboolean error_cb(GstBus *bus, GstMessage *msg, gpointer data)
     gst_message_parse_error(msg, &err, &debug);
     g_free(debug);
     g_warning("%d %d: %s", err->domain, err->code, err->message);
+    GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(pipeline), GST_DEBUG_GRAPH_SHOW_ALL, "quit");
     g_main_loop_quit(loop);
     g_error_free(err);
     return TRUE;
@@ -489,7 +494,6 @@ static GstElement *buildDVDPipeline()
     g_signal_connect(bus, "message::tag", G_CALLBACK(tag_cb), pipe);
     g_signal_connect(bus, "message::eos", G_CALLBACK(eos_cb), pipe);
     g_signal_connect(bus, "message::element", G_CALLBACK(element_cb), pipe);
-
 
     return pipe;
 }
