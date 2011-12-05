@@ -60,6 +60,11 @@ GQuark rippit_error_quark()
     return g_quark_from_static_string("rippit-error-quark");
 }
 
+static void debug_tag(const GstTagList *list, const gchar *tag, gpointer data)
+{
+    GST_DEBUG("Found Tag %s", tag);
+}
+
 static GOptionEntry entries[] =
 {
     { "version", 'v', 0, G_OPTION_ARG_NONE, &printVersion, "Display version", NULL },
@@ -363,6 +368,7 @@ static gboolean tag_cb(GstBus *bus, GstMessage *msg, gpointer data)
         mb_webservice_free(svc);
         startNextTrack();
     }
+    gst_tag_list_foreach(tags, debug_tag, NULL);
     gst_tag_list_free(tags);
     return TRUE;
 }
