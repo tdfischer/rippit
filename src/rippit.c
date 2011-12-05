@@ -262,8 +262,7 @@ static void startNextTrack()
         g_object_set(G_OBJECT(dvdsrc), "title", curTrack, NULL);
         g_object_set(G_OBJECT(dvdsrc), "chapter", 1, NULL);
         gst_element_set_state(dvdsrc, GST_STATE_PAUSED);
-        GstFormat timeFormat = gst_format_get_by_nick("time");
-        gst_element_query_duration(GST_ELEMENT(dvdsrc), &timeFormat, &titleLength);
+        titleLength = getDuration();
         gst_element_set_state(dvdsrc, GST_STATE_NULL);
         if (titleLength == 0) {
             setOutputMessage("Skipping title %d, it appears to be a dummy title.", curTrack);
