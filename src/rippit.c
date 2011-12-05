@@ -139,7 +139,11 @@ static gboolean checkForStall()
 {
     GST_DEBUG("stall check");
     if (isStalled()) {
-        setOutputMessage("Still waiting to decode track. Is the disc scratched?");
+        if (dvdsrc) {
+            setOutputMessage("Still waiting to decode title. Perhaps the DVD is scratched, or really weird?");
+        } else {
+            setOutputMessage("Still waiting to decode track. Is the disc scratched?");
+        }
         GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(pipeline), GST_DEBUG_GRAPH_SHOW_ALL, "stalled");
         g_timeout_add_seconds(5, skipIfStalled, NULL);
         return FALSE;
