@@ -437,10 +437,11 @@ static GstElement *buildDVDPipeline()
     GstElement *dvdSource = gst_element_factory_make("dvdreadsrc", NULL);
     dvdsrc = dvdSource;
     GstElement *dvdDemux = gst_element_factory_make("dvddemux", NULL);
-    GstElement *mpegDec = gst_element_factory_make("mpeg2dec", NULL);
+    GstElement *videoDecoder = gst_element_factory_make("decodebin2", NULL);
+    GstElement *dvdSpu = gst_element_factory_make("dvdspu", NULL);
+
     GstElement *videoQueue = gst_element_factory_make("queue", NULL);
     GstElement *audioQueue = gst_element_factory_make("queue", NULL);
-    GstElement *videoOutQueue = gst_element_factory_make("queue", NULL);
     GstElement *audioOutQueue = gst_element_factory_make("queue", NULL);
 
     GstElement *videoEncoder = gst_element_factory_make("x264enc", NULL);
@@ -468,21 +469,23 @@ static GstElement *buildDVDPipeline()
     g_object_set(G_OBJECT(output), "location", "/dev/null", NULL);
     g_object_set(G_OBJECT(muxer), "writing-app", "Rippit " RIPPIT_VERSION_STRING, NULL);
 
-    gst_bin_add_many(GST_BIN(pipe), audioQueue, videoQueue, dvdSource, dvdDemux, mpegDec, videoEncoder, audioDecoder, audioEncoder, muxer, output, NULL);
-    gst_bin_add_many(GST_BIN(pipe), audioOutQueue, videoOutQueue, NULL);
+    gst_bin_add_many(GST_BIN(pipe), audioOutQueue, audioQueue, videoQueue, videoDecoder, dvdSpu, dvdSource, dvdDemux, videoEncoder, audioDecoder, audioEncoder, muxer, output, NULL);
 
     gst_element_link(dvdSource, dvdDemux);
-    gst_element_link_pads(dvdDemux, "current_video", videoQueue, "sink");
+    gst_element_link_pads(dvdDemux, "current_subpicture", dvdSpu, "subpicture");
+    gst_element_link(dvdSpu, videoQueue);
+    gst_element_link(videoQueue, videoEncoder);
+    gst_element_link(videoEncoder, muxer);
+
+    gst_element_link_pads(dvdDemux, "current_video", videoDecoder, "sink");
+    g_signal_connect(G_OBJECT(videoDecoder), "no-more-pads", G_CALLBACK(linkDecodebin), dvdSpu);
+
     gst_element_link_pads(dvdDemux, "current_audio", audioQueue, "sink");
-    g_signal_connect(G_OBJECT(audioDecoder), "no-more-pads", G_CALLBACK(linkDecodebin), audioEncoder);
     gst_element_link(audioQueue, audioDecoder);
-    gst_element_link(videoQueue, mpegDec);
-    gst_element_link(mpegDec, videoEncoder);
-    gst_element_link(dvdSource, audioEncoder);
-    gst_element_link(videoEncoder, videoOutQueue);
+    g_signal_connect(G_OBJECT(audioDecoder), "no-more-pads", G_CALLBACK(linkDecodebin), audioEncoder);
     gst_element_link(audioEncoder, audioOutQueue);
-    gst_element_link(videoOutQueue, muxer);
     gst_element_link(audioOutQueue, muxer);
+
 
     gst_element_link(muxer, output);
 
