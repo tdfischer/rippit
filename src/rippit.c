@@ -260,6 +260,7 @@ static void startNextTrack()
         gint64 titleLength = 0;
         gst_element_set_state(dvdsrc, GST_STATE_NULL);
         g_object_set(G_OBJECT(dvdsrc), "title", curTrack, NULL);
+        g_object_set(G_OBJECT(dvdsrc), "chapter", 1, NULL);
         gst_element_set_state(dvdsrc, GST_STATE_PAUSED);
         GstFormat timeFormat = gst_format_get_by_nick("time");
         gst_element_query_duration(GST_ELEMENT(dvdsrc), &timeFormat, &titleLength);
