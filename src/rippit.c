@@ -144,8 +144,8 @@ static gboolean checkForStall()
 
 static gboolean isStalled()
 {
-    static int lastTrack = -1;
-    static int lastPos = 0;
+    static guint64 lastTrack = -1;
+    static guint64 lastPos = 0;
 
     if (lastTrack != curTrack) {
         lastTrack = curTrack;
