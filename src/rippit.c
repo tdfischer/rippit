@@ -449,6 +449,7 @@ static GstElement *buildDVDPipeline()
     GstElement *dvdDemux = gst_element_factory_make("dvddemux", NULL);
     GstElement *videoDecoder = gst_element_factory_make("decodebin2", NULL);
     GstElement *dvdSpu = gst_element_factory_make("dvdspu", NULL);
+    GstElement *dvdSubparse = gst_element_factory_make("dvdsubparse", NULL);
 
     GstElement *videoQueue = gst_element_factory_make("queue", NULL);
     GstElement *audioQueue = gst_element_factory_make("queue", NULL);
@@ -479,10 +480,11 @@ static GstElement *buildDVDPipeline()
     g_object_set(G_OBJECT(output), "location", "/dev/null", NULL);
     g_object_set(G_OBJECT(muxer), "writing-app", "Rippit " RIPPIT_VERSION_STRING, NULL);
 
-    gst_bin_add_many(GST_BIN(pipe), audioOutQueue, audioQueue, videoQueue, videoDecoder, dvdSpu, dvdSource, dvdDemux, videoEncoder, audioDecoder, audioEncoder, muxer, output, NULL);
+    gst_bin_add_many(GST_BIN(pipe), audioOutQueue, audioQueue, videoQueue, videoDecoder, dvdSubparse, dvdSpu, dvdSource, dvdDemux, videoEncoder, audioDecoder, audioEncoder, muxer, output, NULL);
 
     gst_element_link(dvdSource, dvdDemux);
-    gst_element_link_pads(dvdDemux, "current_subpicture", dvdSpu, "subpicture");
+    gst_element_link_pads(dvdDemux, "current_subpicture", dvdSubparse, "sink");
+    gst_element_link_pads(dvdSubparse, "src", dvdSpu, "subpicture");
     gst_element_link(dvdSpu, videoQueue);
     gst_element_link(videoQueue, videoEncoder);
     gst_element_link(videoEncoder, muxer);
