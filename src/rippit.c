@@ -26,6 +26,8 @@
 #include <musicbrainz3/mb_c.h>
 #include <stdio.h>
 #include <glib/gprintf.h>
+#include <stdint.h>
+#include <dvdnav/dvdnav.h>
 
 static GMainLoop *loop;
 static GstElement *pipeline;
@@ -229,7 +231,7 @@ static void startNextTrack()
 
     if (!discData) {
         gst_element_set_state(pipeline, GST_STATE_NULL);
-        outname = g_strdup_printf("DVD %d.mkv", curTrack);
+        outname = g_strdup_printf("%s - %d.mkv", discID, curTrack);
     } else {
         if (!forceRip) {
             track = mb_release_get_track(discData, curTrack-1);
@@ -469,7 +471,19 @@ static GstElement *buildDVDPipeline()
 
     if (device) {
         g_object_set(G_OBJECT(dvdSource), "device", device, NULL);
+    } else {
+        g_object_get(G_OBJECT(dvdSource), "device", &device, NULL);
     }
+
+    // Used because the gstreamer elements currently don't publish the disc title
+    // 12/05/11
+    dvdnav_t *dvdnav;
+    // Shouldn't need an error check here since we already know we've got a DVD
+    char *dvdName;
+    dvdnav_open(&dvdnav, device);
+    dvdnav_get_title_string(dvdnav, &dvdName);
+    dvdnav_close(dvdnav);
+    discID = g_strdup(dvdName);
 
     // high10 profile
     //g_object_set(G_OBJECT(videoEncoder), "profile", 4, NULL);
