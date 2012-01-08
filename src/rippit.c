@@ -32,8 +32,8 @@
 static GMainLoop *loop;
 static GstElement *pipeline;
 static GstElement *filesink;
-static GstElement *cdsrc;
-static GstElement *dvdsrc;
+static GstElement *cdsrc = 0;
+static GstElement *dvdsrc = 0;
 static GstTagSetter *tag_setter;
 static MbRelease discData = 0;
 static gboolean gotData = FALSE;
@@ -231,7 +231,10 @@ static void startNextTrack()
 
     if (!discData) {
         gst_element_set_state(pipeline, GST_STATE_NULL);
-        outname = g_strdup_printf("%s - %d.mkv", discID, curTrack);
+        if (dvdsrc)
+            outname = g_strdup_printf("%s - %d.mkv", discID, curTrack);
+        else
+            outname = g_strdup_printf("%s - %d.flac", discID, curTrack);
     } else {
         if (!forceRip) {
             track = mb_release_get_track(discData, curTrack-1);
