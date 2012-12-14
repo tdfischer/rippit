@@ -25,7 +25,7 @@
 #include <string.h>
 #include <musicbrainz3/mb_c.h>
 #include <stdio.h>
-#include <glib/gprintf.h>
+#include <glib.h>
 
 static GMainLoop *loop;
 static GstElement *pipeline;

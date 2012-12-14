@@ -17,7 +17,7 @@
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 //
 
-#include <glib/gquark.h>
+#include <glib.h>
 #include <gst/gstinfo.h>
 #include "rippitversion.h"
 
