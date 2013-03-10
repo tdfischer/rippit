@@ -25,7 +25,7 @@
 #include <string.h>
 #include <musicbrainz3/mb_c.h>
 #include <stdio.h>
-#include <glib/gprintf.h>
+#include <glib.h>
 #include <stdint.h>
 #include <dvdnav/dvdnav.h>
 
